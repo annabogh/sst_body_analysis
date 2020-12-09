@@ -1,0 +1,14 @@
+name: sst_body_analysis
+
+channels:
+        - conda-forge
+
+dependencies:
+        - python=3.9.*
+        - pip=20.*
+        - numpy
+
+        - pip:
+                - matplotlib
+                - pandas
+                - scikit_learn
