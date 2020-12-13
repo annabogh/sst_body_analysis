@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pdal
 from mpl_toolkits import mplot3d
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LinearRegression, RANSACRegressor
 from tqdm import tqdm
 
 
@@ -226,6 +226,8 @@ def rectify_dataset(input_dataset: pd.DataFrame, n_iterations=50) -> pd.DataFram
 
 if __name__ == "__main__":
 
+    thicknesses = []
+    heights = []
     for i in range(1, 68):
         dataset = read_dataset(f"Data/Polygons_Litledalsfjellet/SS_{i}.asc")
 
@@ -238,13 +240,39 @@ if __name__ == "__main__":
         model = estimate_plane(rectified_dataset)
 
         _, tilt = calculate_plane_tilt(model)
-        print(f"Tilt: {tilt:.2f} degrees")
+        # print(f"Tilt: {tilt:.2f} degrees")
 
-        #plot_plane_and_layer(rectified_dataset, model)
+        # plot_plane_and_layer(rectified_dataset, model)
 
         thickness = rectified_dataset["Height"].max() - rectified_dataset["Height"].min()
 
         if thickness > 20:
             plot_plane_and_layer(rectified_dataset, model)
 
-        print(f"Layer {i} is {thickness:.2f} m thick\n")
+        # print(f"Layer {i} is {thickness:.2f} m thick\n")
+
+        thicknesses.append(thickness)
+        heights.append(np.median(dataset["Height"]))
+
+    n_bins = 10
+    height_interval = np.linspace(np.min(heights), np.max(heights), num=n_bins)
+    bins = np.digitize(heights, height_interval)
+
+    maxvals = []
+    for i in range(n_bins):
+        vals = np.array(thicknesses)[bins == i]
+        maxval = vals.max() if vals.shape[0] != 0 else np.nan
+        maxvals.append(maxval)
+
+    model = RANSACRegressor(residual_threshold=4)
+    model.fit(height_interval[~np.isnan(maxvals)].reshape(-1, 1), np.array(maxvals)[~np.isnan(maxvals)])
+
+    plt.plot(model.predict(height_interval.reshape(-1, 1)), height_interval)
+    plt.scatter(thicknesses, heights)
+    # plt.scatter(np.array(maxvals)[~np.isnan(maxvals)][model.inlier_mask_],
+    #            height_interval[~np.isnan(maxvals)][model.inlier_mask_], s=4)
+
+    plt.xlabel("Layer thickness (m)")
+    plt.ylabel("Elevation (m a.s.l.)")
+
+    plt.show()
