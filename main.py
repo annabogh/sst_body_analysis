@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import os
 import tempfile
+import subprocess
 import warnings
 
 import jinja2
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import pdal
 import scipy.spatial.distance
 from mpl_toolkits import mplot3d
 from sklearn.linear_model import LinearRegression, RANSACRegressor
@@ -142,6 +142,7 @@ def pdal_rotate_dataset(dataset, x_angle, y_angle):
     # Make temp-directory and define name for temp-dataset.
     temp_dir = tempfile.TemporaryDirectory()
     dataset_temp_filepath = os.path.join(temp_dir.name, "dataset.xyz")
+    output_temp_filepath = os.path.join(temp_dir.name, "output.xyz")
 
     # Save temp-dataset in temp-directory above.
     dataset_copy.to_csv(dataset_temp_filepath, index=False)
@@ -150,7 +151,7 @@ def pdal_rotate_dataset(dataset, x_angle, y_angle):
     if np.any(np.isnan([x_angle, y_angle])):
         raise AssertionError(f"NaN in x_angle or y_angle: {x_angle, y_angle}")
 
-    pipeline = pdal.Pipeline(jinja2.Template("""
+    pipeline = jinja2.Template("""
     [
         {
             "type": "readers.text",
@@ -163,20 +164,24 @@ def pdal_rotate_dataset(dataset, x_angle, y_angle):
         {
             "type": "filters.transformation",
             "matrix": "{{ cos_y }} 0 {{ sin_y }} 0 0 1 0 0 {{ -sin_y }} 0 {{ cos_y }} 0 0 0 0 1"
+        },
+        {
+            "type": "writers.text",
+            "filename": "{{ outfile }}"
         }
     ]
     """).render(dict(
-        infile=dataset_temp_filepath,
+        infile=dataset_temp_filepath.replace("\\", "/"),
+        outfile=output_temp_filepath.replace("\\", "/"),
         cos_x=np.cos(x_angle),
         sin_x=np.sin(x_angle),
         cos_y=np.cos(y_angle),
         sin_y=np.sin(y_angle)
-    )))
-
-    pipeline.execute()
-
-    result = (pd.DataFrame(pipeline.arrays[0]) +
-              midpoint).rename(columns={"X": "Easting", "Y": "Northing", "Z": "Height"})
+    ))
+    subprocess.run(["pdal", "pipeline", "--stdin"], input=pipeline, encoding="utf-8", check=True)
+    
+    result = (pd.read_csv(output_temp_filepath) + midpoint).rename(columns={"X": "Easting", "Y": "Northing", "Z": "Height"})
+   
 
     return result
 

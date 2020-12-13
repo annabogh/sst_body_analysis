@@ -7,8 +7,12 @@ dependencies:
         - python=3.9.*
         - pip=20.*
         - numpy
+        - pdal
 
         - pip:
                 - matplotlib
                 - pandas
+                - jinja2
+                - tqdm
+                - scipy
                 - scikit_learn
