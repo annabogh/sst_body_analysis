@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import tempfile
 import warnings
@@ -20,8 +22,10 @@ def read_dataset(filepath: str, interpolation_step: float = 1) -> pd.DataFrame:
     :param interpolation_step: Optional. The interval at which to interpolate points.
     :returns: Interpolated dataset without original points.
     """
+    # ERIK: Docstrings should start in imperative mood: "Read" instead of "Reads"
     dataset = pd.read_csv(filepath, delimiter="\t", header=None, names=["Easting", "Northing", "Height"])
     # Dataset is added a last point which equals the first data point to close the shape. This equals the polygon's circumference.
+    # ERIK: What equals the polygon's circumference?
     dataset.loc[dataset.index.max() + 1] = dataset.iloc[0]
 
     # Calculates distances from first point and sets that as index.
@@ -42,6 +46,7 @@ def plot_from_xdir(dataset: pd.DataFrame):
     """
     Plots polygon from x-direction in northing/height graph.
     """
+    # ERIK: Imperative mood
     plt.plot(dataset["Northing"], dataset["Height"])
     plt.show()
 
@@ -50,9 +55,11 @@ def plot_plane_and_layer(dataset: pd.DataFrame, model: LinearRegression):
     """
     Calculates estimated Z-values for plane and plots plane and polygon (AKA layer) in 3D view.
     """
+    # ERIK: Imperative mood
     x_values = [dataset["Easting"].min(), dataset["Easting"].max()] * 2
     y_values = [dataset["Northing"].max()] * 2 + [dataset["Northing"].min()] * 2
     # Calculates predicted z values and makes variable.
+    # ERIK: Makes what variable? (we instantiate a 3D axis (an axis in matplotlib means a canvas))
     predicted_zvalues = model.predict(X=np.transpose([x_values, y_values]))
     ax = plt.axes(projection="3d")
 
@@ -60,6 +67,8 @@ def plot_plane_and_layer(dataset: pd.DataFrame, model: LinearRegression):
     ax.plot_surface(np.array(x_values).reshape((2, 2)), np.array(
         y_values).reshape((2, 2)), predicted_zvalues.reshape((2, 2)), alpha=0.5)
 
+    # ERIK: The block below makes the axes equal, starting from the z/y/z-min, and ending at the maximum difference of
+    # the dimensions. This means the axes are to scale with each other.
     maximum_offset = max(
         dataset["Easting"].max() - dataset["Easting"].min(),
         dataset["Northing"].max() - dataset["Northing"].min(),
@@ -78,6 +87,7 @@ def estimate_plane(dataset: pd.DataFrame):
     """
     Makes flat plane based on polygon points.
     """
+    # ERIK: Imperative mood
     model = LinearRegression()
     model.fit(X=dataset[["Easting", "Northing"]], y=dataset["Height"])
     # plot_plane_and_layer(dataset, model)
@@ -101,8 +111,6 @@ def calculate_plane_tilt(model: LinearRegression) -> tuple[float, float]:
 
     tilt = np.rad2deg(np.arctan((elevations.max() - elevations.min()) / 2))
 
-    assert ~np.isnan(tilt), f"Tilt is NaN in calculate_plane_tilt {elevations.max() - elevations.min()}"
-
     return tilt_direction, tilt
 
 
@@ -113,51 +121,9 @@ def calculate_plane_x_y_angles(model: LinearRegression):
 
     if np.isnan(x_angle):
 
-        print(model)
-
         raise AssertionError(f"x_angle is NaN!")
 
     return x_angle, y_angle
-
-    print(x_angle)
-
-
-def calculate_normal_distance(tilt: float, height_diff: float) -> float:
-
-    normal_distance = np.cos(np.deg2rad(tilt)) * height_diff
-    return normal_distance
-
-
-def main():
-    dataset = read_dataset("Data/Polygons_Litledalsfjellet/SS_39.asc")
-    print(dataset)
-    # plot_from_xdir(dataset)
-    model = estimate_plane(dataset)
-    tilt_direction, tilt = calculate_plane_tilt(model)
-    print(tilt_direction, tilt)
-    normal_distance = calculate_normal_distance(tilt, dataset["Height"].max() - dataset["Height"].min())
-    print(normal_distance)
-    plot_plane_and_layer(dataset, model)
-
-
-def correct_points(dataset):
-
-    model = estimate_plane(dataset)
-
-    midpoint = dataset[["Easting", "Northing", "Height"]].mean(axis=0).values
-    dataset["z_shift"] = midpoint[2] - model.predict(X=dataset[["Easting", "Northing"]])
-
-    print(model.predict(X=[midpoint[:2]])[0] - midpoint[2])
-
-    new_coords = dataset.apply(lambda row: correct_point(
-        midpoint, row[["Easting", "Northing", "Height"]].values, z_shift=row["z_shift"]), axis=1)
-
-    for i in range(dataset.shape[0]):
-        dataset.loc[i, ["Easting", "Northing", "Height"]] = new_coords[i]
-
-    print(dataset)
-
-    plot_plane_and_layer(dataset, model)
 
 
 def pdal_rotate_dataset(dataset, x_angle, y_angle):
@@ -209,6 +175,7 @@ def pdal_rotate_dataset(dataset, x_angle, y_angle):
 
 
 def rectify_dataset(input_dataset: pd.DataFrame, n_iterations=50) -> pd.DataFrame:
+    raise DeprecationWarning("Function should not need to be used")
     dataset = input_dataset.copy()
 
     def error_minimisation(dataset, learning_rate_factor=4):
@@ -216,10 +183,8 @@ def rectify_dataset(input_dataset: pd.DataFrame, n_iterations=50) -> pd.DataFram
         _, tilt = calculate_plane_tilt(model)
 
         sign = 1
-        progress_bar = tqdm(total=n_iterations, disable=True)
         for i in range(n_iterations):
             x_angle, y_angle = calculate_plane_x_y_angles(model)
-            progress_bar.desc = f"Factor: {learning_rate_factor}, tilt: {tilt:.2f}, angles: {np.rad2deg(x_angle):.2f} {np.rad2deg(y_angle):.2f}, sign: {sign}"
             if tilt < 0.15:
                 break
 
@@ -240,12 +205,8 @@ def rectify_dataset(input_dataset: pd.DataFrame, n_iterations=50) -> pd.DataFram
                 tilt = new_tilt
             else:
                 sign *= -1
-            progress_bar.update()
         else:
-            progress_bar.close()
             raise ValueError(f"Rectification never converged after {n_iterations} iterations. Tilt: {tilt:.2f} degrees")
-
-        progress_bar.close()
 
         return dataset
 
@@ -268,12 +229,16 @@ if __name__ == "__main__":
     for i in range(1, 68):
         dataset = read_dataset(f"Data/Polygons_Litledalsfjellet/SS_{i}.asc")
 
-        try:
-            rectified_dataset = rectify_dataset(dataset)
-        except ValueError:
-            print(f"Layer {i} rectification failed")
-            continue
+        rectified_dataset = dataset.copy()
+        for _ in range(2):
+            model = estimate_plane(rectified_dataset)
+            x_angle, y_angle = calculate_plane_x_y_angles(model)
+            rectified_dataset = pdal_rotate_dataset(rectified_dataset, -x_angle, -y_angle)
+
         model = estimate_plane(rectified_dataset)
+
+        _, tilt = calculate_plane_tilt(model)
+        print(f"Tilt: {tilt:.2f} degrees")
 
         #plot_plane_and_layer(rectified_dataset, model)
 
@@ -282,4 +247,4 @@ if __name__ == "__main__":
         if thickness > 20:
             plot_plane_and_layer(rectified_dataset, model)
 
-        print(f"Layer {i} is {thickness:.2f} m thick")
+        print(f"Layer {i} is {thickness:.2f} m thick\n")
