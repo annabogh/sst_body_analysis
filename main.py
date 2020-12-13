@@ -16,58 +16,54 @@ from tqdm import tqdm
 
 def read_dataset(filepath: str, interpolation_step: float = 1) -> pd.DataFrame:
     """
-    Reads dataset and interpolates equally spaced points.
+    Read dataset and interpolate equally spaced points.
 
     :param filepath: Relative path to file.
     :param interpolation_step: Optional. The interval at which to interpolate points.
     :returns: Interpolated dataset without original points.
     """
-    # ERIK: Docstrings should start in imperative mood: "Read" instead of "Reads"
     dataset = pd.read_csv(filepath, delimiter="\t", header=None, names=["Easting", "Northing", "Height"])
-    # Dataset is added a last point which equals the first data point to close the shape. This equals the polygon's circumference.
-    # ERIK: What equals the polygon's circumference?
+    # Dataset is added a last point which equals the first data point to close the shape. Cummulative distance between first point and last point equals the polygon's circumference.
     dataset.loc[dataset.index.max() + 1] = dataset.iloc[0]
 
-    # Calculates distances from first point and sets that as index.
+    # Calculate distances from first point and sets that as index.
     distances_from_first = np.cumsum(np.linalg.norm((dataset - dataset.shift(1)).fillna(0), axis=1))
     dataset.index = distances_from_first
 
-    # Generates new indices pr. interpolation_step and compiles the old and new indices in a list.
+    # Generate new indices pr. interpolation_step and compile the old and new indices in a list.
     new_indices = np.arange(0, dataset.index.max(), step=interpolation_step)
     all_indices = np.unique(np.r_[dataset.index, new_indices])
 
     # Re-index the dataset to include new and old indices. Interpolates the new coordinates from the old indices' coordinates.
-    #  Only includes new indices and coordinates.
+    # Only includes new indices and coordinates.
     interpolated_dataset = dataset.reindex(all_indices).interpolate(method="linear").reindex(new_indices)
     return interpolated_dataset
 
 
 def plot_from_xdir(dataset: pd.DataFrame):
     """
-    Plots polygon from x-direction in northing/height graph.
+    Plot polygon from x-direction in northing/height graph.
     """
-    # ERIK: Imperative mood
     plt.plot(dataset["Northing"], dataset["Height"])
     plt.show()
 
 
 def plot_plane_and_layer(dataset: pd.DataFrame, model: LinearRegression):
     """
-    Calculates estimated Z-values for plane and plots plane and polygon (AKA layer) in 3D view.
+    Calculate estimated Z-values for plane and plot plane and polygon (AKA layer) in 3D view.
     """
     # ERIK: Imperative mood
     x_values = [dataset["Easting"].min(), dataset["Easting"].max()] * 2
     y_values = [dataset["Northing"].max()] * 2 + [dataset["Northing"].min()] * 2
-    # Calculates predicted z values and makes variable.
-    # ERIK: Makes what variable? (we instantiate a 3D axis (an axis in matplotlib means a canvas))
+    # Calculate predicted z values and put it in a variable.
     predicted_zvalues = model.predict(X=np.transpose([x_values, y_values]))
-    ax = plt.axes(projection="3d")
 
+    ax = plt.axes(projection="3d")
     ax.plot3D(dataset["Easting"], dataset["Northing"], dataset["Height"])
     ax.plot_surface(np.array(x_values).reshape((2, 2)), np.array(
         y_values).reshape((2, 2)), predicted_zvalues.reshape((2, 2)), alpha=0.5)
 
-    # ERIK: The block below makes the axes equal, starting from the z/y/z-min, and ending at the maximum difference of
+    # The block below makes the axes equal, starting from the z/y/z-min, and ending at the maximum difference of
     # the dimensions. This means the axes are to scale with each other.
     maximum_offset = max(
         dataset["Easting"].max() - dataset["Easting"].min(),
@@ -85,9 +81,8 @@ def plot_plane_and_layer(dataset: pd.DataFrame, model: LinearRegression):
 
 def estimate_plane(dataset: pd.DataFrame):
     """
-    Makes flat plane based on polygon points.
+    Make flat plane based on polygon points.
     """
-    # ERIK: Imperative mood
     model = LinearRegression()
     model.fit(X=dataset[["Easting", "Northing"]], y=dataset["Height"])
     # plot_plane_and_layer(dataset, model)
@@ -95,29 +90,39 @@ def estimate_plane(dataset: pd.DataFrame):
 
 
 def calculate_plane_tilt(model: LinearRegression) -> tuple[float, float]:
-
+    """
+    Calculate plane tilt from estimated plane.
+    :param model: estimated plane
+    :returns: tilt-direction and tilt
+    """
+    # Try 1000 different angles around a circle. 
     angles_to_try = np.linspace(0, np.pi * 2, num=1000)
     x_values_to_try = np.cos(angles_to_try)
     y_values_to_try = np.sin(angles_to_try)
 
+    # Find elevations corresponding to the x,y-pairs in circle. 
     elevations = model.predict(X=np.transpose([x_values_to_try, y_values_to_try]))
 
+    # Find angles corresponding to lowest elevation, which is the same as tilt-direction. Converts from radians to degrees.
     lowest_index = np.argwhere(elevations == elevations.min())[0]
-
     tilt_direction = np.rad2deg(angles_to_try[lowest_index])
 
+    # Checks if plane tilts very little. If yes, it is horizontal.
     if np.std(elevations) < 1e-4:
         return 0.0, 0.0
 
+    # Tilt is calculated from inverse tangent of the elevation difference divided by diameter of the circle.
     tilt = np.rad2deg(np.arctan((elevations.max() - elevations.min()) / 2))
 
     return tilt_direction, tilt
 
 
 def calculate_plane_x_y_angles(model: LinearRegression):
-
-    x_angle = -np.arctan(np.diff(model.predict([[-1, 0], [1, 0]]))[0] / 2)
-    y_angle = np.arctan(np.diff(model.predict([[0, -1], [0, 1]]))[0] / 2)
+    """
+    Calculate angles along the x,y axes from plane model.
+    """
+    y_angle = -np.arctan(np.diff(model.predict([[-1, 0], [1, 0]]))[0] / 2)
+    x_angle = np.arctan(np.diff(model.predict([[0, -1], [0, 1]]))[0] / 2)
 
     if np.isnan(x_angle):
 
@@ -127,19 +132,20 @@ def calculate_plane_x_y_angles(model: LinearRegression):
 
 
 def pdal_rotate_dataset(dataset, x_angle, y_angle):
-
+    # Copy dataset and make new pdal friendly column names.
     dataset_copy = dataset.rename(columns={"Easting": "X", "Northing": "Y", "Height": "Z"})
-
+    # Make 0,0 point in middle of dataset.
     midpoint = dataset_copy.mean(axis=0)
-
     dataset_copy -= midpoint
 
+    # Make temp-directory and define name for temp-dataset.
     temp_dir = tempfile.TemporaryDirectory()
     dataset_temp_filepath = os.path.join(temp_dir.name, "dataset.xyz")
-    grid_cloud_temp_filepath = os.path.join(temp_dir.name, "grid.xyz")
 
+    #Save temp-dataset in temp-directory above.
     dataset_copy.to_csv(dataset_temp_filepath, index=False)
 
+    # Check if angles are NaN or actual values.
     if np.any(np.isnan([x_angle, y_angle])):
         raise AssertionError(f"NaN in x_angle or y_angle: {x_angle, y_angle}")
 
@@ -160,10 +166,10 @@ def pdal_rotate_dataset(dataset, x_angle, y_angle):
     ]
     """).render(dict(
         infile=dataset_temp_filepath,
-        cos_x=np.cos(y_angle),
-        sin_x=np.sin(y_angle),
-        cos_y=np.cos(x_angle),
-        sin_y=np.sin(x_angle)
+        cos_x=np.cos(x_angle),
+        sin_x=np.sin(x_angle),
+        cos_y=np.cos(y_angle),
+        sin_y=np.sin(y_angle)
     )))
 
     pipeline.execute()
@@ -173,55 +179,6 @@ def pdal_rotate_dataset(dataset, x_angle, y_angle):
 
     return result
 
-
-def rectify_dataset(input_dataset: pd.DataFrame, n_iterations=50) -> pd.DataFrame:
-    raise DeprecationWarning("Function should not need to be used")
-    dataset = input_dataset.copy()
-
-    def error_minimisation(dataset, learning_rate_factor=4):
-        model = estimate_plane(dataset)
-        _, tilt = calculate_plane_tilt(model)
-
-        sign = 1
-        for i in range(n_iterations):
-            x_angle, y_angle = calculate_plane_x_y_angles(model)
-            if tilt < 0.15:
-                break
-
-            learning_rate = min(tilt * learning_rate_factor, 1)
-            assert ~np.isnan(tilt), "Tilt is NaN!"
-            new_dataset = pdal_rotate_dataset(
-                dataset=dataset,
-                x_angle=sign * x_angle * learning_rate,
-                y_angle=sign * y_angle * learning_rate
-            )
-
-            new_model = estimate_plane(new_dataset)
-            _, new_tilt = calculate_plane_tilt(new_model)
-
-            if new_tilt < tilt:
-                model = new_model
-                dataset = new_dataset
-                tilt = new_tilt
-            else:
-                sign *= -1
-        else:
-            raise ValueError(f"Rectification never converged after {n_iterations} iterations. Tilt: {tilt:.2f} degrees")
-
-        return dataset
-
-    factors_to_try = np.linspace(0.6, 2, num=15) ** 10
-    np.random.shuffle(factors_to_try)
-    for factor in factors_to_try:
-        try:
-            rectified_dataset = error_minimisation(dataset, learning_rate_factor=factor)
-            break
-        except ValueError:
-            continue
-    else:
-        raise ValueError("Rectification failed")
-
-    return rectified_dataset
 
 
 if __name__ == "__main__":
