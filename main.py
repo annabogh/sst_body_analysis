@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pdal
+import scipy.spatial.distance
 from mpl_toolkits import mplot3d
 from sklearn.linear_model import LinearRegression, RANSACRegressor
 from tqdm import tqdm
@@ -95,12 +96,12 @@ def calculate_plane_tilt(model: LinearRegression) -> tuple[float, float]:
     :param model: estimated plane
     :returns: tilt-direction and tilt
     """
-    # Try 1000 different angles around a circle. 
+    # Try 1000 different angles around a circle.
     angles_to_try = np.linspace(0, np.pi * 2, num=1000)
     x_values_to_try = np.cos(angles_to_try)
     y_values_to_try = np.sin(angles_to_try)
 
-    # Find elevations corresponding to the x,y-pairs in circle. 
+    # Find elevations corresponding to the x,y-pairs in circle.
     elevations = model.predict(X=np.transpose([x_values_to_try, y_values_to_try]))
 
     # Find angles corresponding to lowest elevation, which is the same as tilt-direction. Converts from radians to degrees.
@@ -142,7 +143,7 @@ def pdal_rotate_dataset(dataset, x_angle, y_angle):
     temp_dir = tempfile.TemporaryDirectory()
     dataset_temp_filepath = os.path.join(temp_dir.name, "dataset.xyz")
 
-    #Save temp-dataset in temp-directory above.
+    # Save temp-dataset in temp-directory above.
     dataset_copy.to_csv(dataset_temp_filepath, index=False)
 
     # Check if angles are NaN or actual values.
@@ -180,14 +181,36 @@ def pdal_rotate_dataset(dataset, x_angle, y_angle):
     return result
 
 
+def measure_width(dataset):
+
+    distances = scipy.spatial.distance.cdist(
+        dataset[["Easting", "Northing", "Height"]],
+        dataset[["Easting", "Northing", "Height"]]
+    )
+
+    width = distances.max()
+
+    return width
+
+
+def get_polygon_filepaths(mountain_name):
+    directory_name = f"Data/Polygons_{mountain_name}/"
+    filepaths = []
+    for file_name in os.listdir(directory_name):
+        filepath = os.path.join(directory_name, file_name)
+        filepaths.append(filepath)
+    return filepaths
+
 
 if __name__ == "__main__":
 
     thicknesses = []
     heights = []
-    for i in range(1, 68):
-        dataset = read_dataset(f"Data/Polygons_Litledalsfjellet/SS_{i}.asc")
-
+    widths = []
+    for filepath in tqdm(get_polygon_filepaths("Litledalsfjellet")):
+        dataset = read_dataset(filepath)
+        width = measure_width(dataset)
+        widths.append(width)
         rectified_dataset = dataset.copy()
         for _ in range(2):
             model = estimate_plane(rectified_dataset)
@@ -211,6 +234,12 @@ if __name__ == "__main__":
         thicknesses.append(thickness)
         heights.append(np.median(dataset["Height"]))
 
+    plt.subplot(1, 3, 1)
+    plt.scatter(widths, heights)
+
+    plt.xlabel("Layer width (m)")
+    plt.ylabel("Elevation (m a.s.l.)")
+
     n_bins = 10
     height_interval = np.linspace(np.min(heights), np.max(heights), num=n_bins)
     bins = np.digitize(heights, height_interval)
@@ -222,14 +251,20 @@ if __name__ == "__main__":
         maxvals.append(maxval)
 
     model = RANSACRegressor(residual_threshold=4)
+
     model.fit(height_interval[~np.isnan(maxvals)].reshape(-1, 1), np.array(maxvals)[~np.isnan(maxvals)])
 
-    plt.plot(model.predict(height_interval.reshape(-1, 1)), height_interval)
+    plt.subplot(1, 3, 2)
+   # plt.plot(model.predict(height_interval.reshape(-1, 1)), height_interval)
     plt.scatter(thicknesses, heights)
-    # plt.scatter(np.array(maxvals)[~np.isnan(maxvals)][model.inlier_mask_],
-    #            height_interval[~np.isnan(maxvals)][model.inlier_mask_], s=4)
 
     plt.xlabel("Layer thickness (m)")
     plt.ylabel("Elevation (m a.s.l.)")
+
+    plt.subplot(1, 3, 3)
+    plt.scatter(widths, thicknesses)
+
+    plt.ylabel("Layer thickness (m)")
+    plt.xlabel("Layer width (m)")
 
     plt.show()
