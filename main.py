@@ -225,18 +225,17 @@ def get_mountain_names():
     unique_mountain_names = np.unique(mountain_names)
     return unique_mountain_names
 
-def plot_data():
-    row = 0
+
+def prepare_data():
+    if os.path.isfile("all_layer_data.csv"):
+        return pd.read_csv("all_layer_data.csv",index_col=0)
+    data = pd.DataFrame(columns=["mountain_name","thickness","width","height","easting","northing"])
     mountain_names = get_mountain_names()
+    count = 0
     for mountain_name in mountain_names:
-        row +=1
-        thicknesses = []
-        heights = []
-        widths = []
         for filepath in tqdm(get_polygon_filepaths(mountain_name)):
             dataset = read_dataset(filepath)
             width = measure_width(dataset)
-            widths.append(width)
             rectified_dataset = dataset.copy()
             for _ in range(2):
                 model = estimate_plane(rectified_dataset)
@@ -257,10 +256,22 @@ def plot_data():
 
             # print(f"Layer {i} is {thickness:.2f} m thick\n")
 
-            thicknesses.append(thickness)
-            heights.append(np.median(dataset["Height"]))
+            height = np.median(dataset["Height"])
+            easting = np.median(dataset["Easting"])
+            northing = np.median(dataset["Northing"])
+            data.loc[count] = mountain_name, thickness, width, height, easting, northing
+            count += 1
+    data.to_csv("all_layer_data.csv")
+    return data
 
 
+def plot_data():
+    row = 0
+    mountain_names = get_mountain_names()
+    data = prepare_data()
+
+    for mountain_name, mountain_data in data.groupby("mountain_name"):
+        row += 1
         line_heights = []
         line_widths = []
         for filepath in get_lines_filepaths(mountain_name):
@@ -270,40 +281,54 @@ def plot_data():
             line_heights.append(np.median(dataset["Height"]))
 
         plt.subplot(len(mountain_names), 3, 1 + (3 * (row - 1)))
-        plt.scatter(widths, heights, facecolor="darkslategrey", alpha=0.7)
+        plt.scatter(mountain_data["width"], mountain_data["height"], facecolor="darkslategrey", alpha=0.7)
         plt.scatter(line_widths, line_heights, facecolor="None", edgecolor=(0.38,0.26,0.98,.5))
 
-        plt.xlabel("Layer width (m)")
-        plt.ylabel("Elevation (m a.s.l.)")
-
-        n_bins = 10
-        height_interval = np.linspace(np.min(heights), np.max(heights), num=n_bins)
-        bins = np.digitize(heights, height_interval)
-
-        maxvals = []
-        for i in range(n_bins):
-            vals = np.array(thicknesses)[bins == i]
-            maxval = vals.max() if vals.shape[0] != 0 else np.nan
-            maxvals.append(maxval)
-
-        model = RANSACRegressor(residual_threshold=4)
-
-        model.fit(height_interval[~np.isnan(maxvals)].reshape(-1, 1), np.array(maxvals)[~np.isnan(maxvals)])
+        plt.xlabel("Layer width (m)", fontsize=12)
+        if row == 3:
+            plt.ylabel("Elevation (m a.s.l.)", fontsize=12)
 
         plt.subplot(len(mountain_names), 3, 2 + (3 * (row - 1)))
-    # plt.plot(model.predict(height_interval.reshape(-1, 1)), height_interval)
-        plt.scatter(thicknesses, heights, facecolor="darkslategrey", alpha=0.7)
+        nice_label = mountain_name.replace("oe","ø").replace("_"," ")
+        plt.text(0.5, 0.8, nice_label, transform=plt.gca().transAxes, ha="center", fontsize=12)
+        plt.scatter(mountain_data["thickness"], mountain_data["height"], facecolor="darkslategrey", alpha=0.7)
 
-        plt.xlabel("Layer thickness (m)")
-        plt.ylabel("Elevation (m a.s.l.)")
+        plt.xlabel("Layer thickness (m)", fontsize=12)
+        if row == 3:
+            plt.ylabel("Elevation (m a.s.l.)", fontsize=12)
 
         plt.subplot(len(mountain_names), 3, 3 + (3 * (row - 1)))
-        plt.scatter(widths, thicknesses, facecolor="darkslategrey", alpha=0.7)
+        plt.scatter(mountain_data["width"], mountain_data["thickness"], facecolor="darkslategrey", alpha=0.7)
 
-        plt.ylabel("Layer thickness (m)")
-        plt.xlabel("Layer width (m)")
+        plt.xlabel("Layer width (m)", fontsize=12)
+        if row == 3:
+            plt.ylabel("Layer thickness (m)", fontsize=12)
+        
+        
 
     plt.show()
 
+def plot_width_thickness():
+    data = prepare_data()
+
+    model = RANSACRegressor()
+    model.fit(data["width"].values.reshape(-1, 1), data["thickness"])
+    linear_width_values = np.linspace(data["width"].min(), data["width"].max())
+    predicted_thicknesses = model.predict(linear_width_values.reshape(-1, 1))
+    confidence_interval = 1.96 * np.std(predicted_thicknesses)/np.mean(predicted_thicknesses)
+
+    for i, (mountain_name, mountain_data) in enumerate(data.groupby("mountain_name")):
+        nice_label = mountain_name.replace("oe","ø").replace("_"," ")
+        color = plt.get_cmap("twilight")(i / len(np.unique(data["mountain_name"])))
+
+        plt.scatter(mountain_data["width"],mountain_data["thickness"],label=nice_label, c=(color,), edgecolors="darkgrey")
+       
+    plt.plot(linear_width_values, predicted_thicknesses)
+    plt.fill_between(linear_width_values, predicted_thicknesses + confidence_interval, predicted_thicknesses - confidence_interval, color="moccasin", alpha=0.5)
+    plt.legend()
+    plt.show()
+
 if __name__ == "__main__":
+    #plot_width_thickness()
+    #print(prepare_data())
     plot_data()
