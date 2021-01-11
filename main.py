@@ -206,70 +206,104 @@ def get_polygon_filepaths(mountain_name):
         filepaths.append(filepath)
     return filepaths
 
+def get_lines_filepaths(mountain_name):
+    directory_name = f"Data/Lines_{mountain_name}/"
+    filepaths = []
+    try:
+        for file_name in os.listdir(directory_name):
+            filepath = os.path.join(directory_name, file_name)
+            filepaths.append(filepath)
+    except FileNotFoundError:
+        return filepaths
+    return filepaths
 
-if __name__ == "__main__":
+def get_mountain_names():
+    mountain_names = []
+    for filename in os.listdir("Data"):
+        mountain_name = filename.replace("Lines_","").replace("Polygons_","")
+        mountain_names.append(mountain_name)
+    unique_mountain_names = np.unique(mountain_names)
+    return unique_mountain_names
 
-    thicknesses = []
-    heights = []
-    widths = []
-    for filepath in tqdm(get_polygon_filepaths("Litledalsfjellet")):
-        dataset = read_dataset(filepath)
-        width = measure_width(dataset)
-        widths.append(width)
-        rectified_dataset = dataset.copy()
-        for _ in range(2):
+def plot_data():
+    row = 0
+    mountain_names = get_mountain_names()
+    for mountain_name in mountain_names:
+        row +=1
+        thicknesses = []
+        heights = []
+        widths = []
+        for filepath in tqdm(get_polygon_filepaths(mountain_name)):
+            dataset = read_dataset(filepath)
+            width = measure_width(dataset)
+            widths.append(width)
+            rectified_dataset = dataset.copy()
+            for _ in range(2):
+                model = estimate_plane(rectified_dataset)
+                x_angle, y_angle = calculate_plane_x_y_angles(model)
+                rectified_dataset = pdal_rotate_dataset(rectified_dataset, -x_angle, -y_angle)
+
             model = estimate_plane(rectified_dataset)
-            x_angle, y_angle = calculate_plane_x_y_angles(model)
-            rectified_dataset = pdal_rotate_dataset(rectified_dataset, -x_angle, -y_angle)
 
-        model = estimate_plane(rectified_dataset)
+            _, tilt = calculate_plane_tilt(model)
+            # print(f"Tilt: {tilt:.2f} degrees")
 
-        _, tilt = calculate_plane_tilt(model)
-        # print(f"Tilt: {tilt:.2f} degrees")
+            # plot_plane_and_layer(rectified_dataset, model)
 
-        # plot_plane_and_layer(rectified_dataset, model)
+            thickness = rectified_dataset["Height"].max() - rectified_dataset["Height"].min()
 
-        thickness = rectified_dataset["Height"].max() - rectified_dataset["Height"].min()
+            #if thickness > 20:
+            #    plot_plane_and_layer(rectified_dataset, model)
 
-        if thickness > 20:
-            plot_plane_and_layer(rectified_dataset, model)
+            # print(f"Layer {i} is {thickness:.2f} m thick\n")
 
-        # print(f"Layer {i} is {thickness:.2f} m thick\n")
+            thicknesses.append(thickness)
+            heights.append(np.median(dataset["Height"]))
 
-        thicknesses.append(thickness)
-        heights.append(np.median(dataset["Height"]))
 
-    plt.subplot(1, 3, 1)
-    plt.scatter(widths, heights)
+        line_heights = []
+        line_widths = []
+        for filepath in get_lines_filepaths(mountain_name):
+            dataset = read_dataset(filepath)
+            width = measure_width(dataset)
+            line_widths.append(width)
+            line_heights.append(np.median(dataset["Height"]))
 
-    plt.xlabel("Layer width (m)")
-    plt.ylabel("Elevation (m a.s.l.)")
+        plt.subplot(len(mountain_names), 3, 1 + (3 * (row - 1)))
+        plt.scatter(widths, heights, facecolor="darkslategrey", alpha=0.7)
+        plt.scatter(line_widths, line_heights, facecolor="None", edgecolor=(0.38,0.26,0.98,.5))
 
-    n_bins = 10
-    height_interval = np.linspace(np.min(heights), np.max(heights), num=n_bins)
-    bins = np.digitize(heights, height_interval)
+        plt.xlabel("Layer width (m)")
+        plt.ylabel("Elevation (m a.s.l.)")
 
-    maxvals = []
-    for i in range(n_bins):
-        vals = np.array(thicknesses)[bins == i]
-        maxval = vals.max() if vals.shape[0] != 0 else np.nan
-        maxvals.append(maxval)
+        n_bins = 10
+        height_interval = np.linspace(np.min(heights), np.max(heights), num=n_bins)
+        bins = np.digitize(heights, height_interval)
 
-    model = RANSACRegressor(residual_threshold=4)
+        maxvals = []
+        for i in range(n_bins):
+            vals = np.array(thicknesses)[bins == i]
+            maxval = vals.max() if vals.shape[0] != 0 else np.nan
+            maxvals.append(maxval)
 
-    model.fit(height_interval[~np.isnan(maxvals)].reshape(-1, 1), np.array(maxvals)[~np.isnan(maxvals)])
+        model = RANSACRegressor(residual_threshold=4)
 
-    plt.subplot(1, 3, 2)
-   # plt.plot(model.predict(height_interval.reshape(-1, 1)), height_interval)
-    plt.scatter(thicknesses, heights)
+        model.fit(height_interval[~np.isnan(maxvals)].reshape(-1, 1), np.array(maxvals)[~np.isnan(maxvals)])
 
-    plt.xlabel("Layer thickness (m)")
-    plt.ylabel("Elevation (m a.s.l.)")
+        plt.subplot(len(mountain_names), 3, 2 + (3 * (row - 1)))
+    # plt.plot(model.predict(height_interval.reshape(-1, 1)), height_interval)
+        plt.scatter(thicknesses, heights, facecolor="darkslategrey", alpha=0.7)
 
-    plt.subplot(1, 3, 3)
-    plt.scatter(widths, thicknesses)
+        plt.xlabel("Layer thickness (m)")
+        plt.ylabel("Elevation (m a.s.l.)")
 
-    plt.ylabel("Layer thickness (m)")
-    plt.xlabel("Layer width (m)")
+        plt.subplot(len(mountain_names), 3, 3 + (3 * (row - 1)))
+        plt.scatter(widths, thicknesses, facecolor="darkslategrey", alpha=0.7)
+
+        plt.ylabel("Layer thickness (m)")
+        plt.xlabel("Layer width (m)")
 
     plt.show()
+
+if __name__ == "__main__":
+    plot_data()
