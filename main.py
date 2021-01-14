@@ -237,6 +237,7 @@ def prepare_data():
     data = pd.DataFrame(columns=["mountain_name","thickness","width","height_asl", "height_abatt","easting","northing"])
     mountain_names = get_mountain_names()
     count = 0
+    planes = estimate_datum_height()
     for mountain_name in mountain_names:
         for filepath in tqdm(get_polygon_filepaths(mountain_name)):
             dataset = read_dataset(filepath)
@@ -263,7 +264,8 @@ def prepare_data():
 
             easting = np.median(dataset["Easting"])
             northing = np.median(dataset["Northing"])
-            batt_height = list(boundary_height_data.sample([(easting, northing)]))[0][0]
+            nice_label = mountain_name.replace("oe","ø").replace("_S","")
+            batt_height = planes[nice_label].predict(np.reshape([easting, northing], (1, -1)))[0]
             
             height_asl = np.median(dataset["Height"])
             height_abatt = height_asl - batt_height
@@ -279,7 +281,7 @@ def plot_data():
     row = 0
     mountain_names = get_mountain_names()
     data = prepare_data()
-
+    planes = estimate_datum_height()
     for mountain_name, mountain_data in data.groupby("mountain_name"):
         row += 1
         line_heights = []
@@ -291,7 +293,8 @@ def plot_data():
             line_widths.append(width)
             easting = np.median(dataset["Easting"])
             northing = np.median(dataset["Northing"])
-            batt_height = list(boundary_height_data.sample([(easting, northing)]))[0][0]
+            nice_label = mountain_name.replace("oe","ø").replace("_S","")
+            batt_height = planes[nice_label].predict(np.reshape([easting, northing], (1, -1)))[0]
             
             height_asl = np.median(dataset["Height"])
             height_abatt = height_asl - batt_height
@@ -345,9 +348,24 @@ def plot_width_thickness():
     plt.legend()
     plt.show()
 
+
+def estimate_datum_height():
+    boundary_points = pd.read_csv("batt_boundary_redrawn.csv")
+    boundary_points.rename(columns={"Height_asl": "Height"}, inplace=True)
+    planes = {}
+    for locality, locality_data in boundary_points.groupby("Locality"):
+        model = estimate_plane(locality_data)
+        planes[locality] = model
+    return planes
+
 if __name__ == "__main__":
     #plot_width_thickness()
     #print(prepare_data())
-    plot_data()
-    #boundary_height.grid_points()
+    #plot_data()
+    for filename in os.listdir("layer_boundaries/"):
+        if not filename.endswith(".csv"):
+            continue
+        boundary_height.grid_points_new(os.path.join("layer_boundaries/", filename), f"layer_boundary_rasters/{filename.replace('.csv', '.tif')}")
+    #boundary_height.grid_points_new("boundary_height.csv", "boundary_height_new.tif")
     #boundary_height.boundary_surface()
+    #estimate_datum_height()

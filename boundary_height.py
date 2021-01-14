@@ -17,6 +17,26 @@ def read_boundary_points():
     return points
 
 
+def grid_points_new(boundary_points_filepath, output_raster_filepath):
+    points = pd.read_csv(boundary_points_filepath).dropna().rename(columns={"HeightBatt1": "Height"})
+    resolution = 2000
+    x_grid = np.arange(points["Easting"].min(), points["Easting"].max(), step=resolution)
+    y_grid = np.arange(points["Northing"].min(), points["Northing"].max(), step=resolution)
+
+    eastings, northings = np.meshgrid(x_grid, y_grid)
+    interpolated_heights = scipy.interpolate.griddata(points[["Easting", "Northing"]].values, points["Height"], (eastings, northings), method="linear")
+
+    bounds = {"west": x_grid.min(), "east": x_grid.max(), "south": y_grid.min(), "north": y_grid.max()}
+    transform = rio.transform.from_bounds(**bounds, width=interpolated_heights.shape[1], height=interpolated_heights.shape[0])
+
+    interpolated_heights[np.isnan(interpolated_heights)] = -9999
+
+    with rio.open(output_raster_filepath, mode="w", driver="GTiff", width=interpolated_heights.shape[1], height=interpolated_heights.shape[0], crs=rio.crs.CRS.from_epsg(32633), transform=transform, dtype=interpolated_heights.dtype, count=1, nodata=-9999) as raster:
+        raster.write(interpolated_heights[::-1, :], 1)
+
+    plt.imshow(interpolated_heights)
+    #plt.show()
+
 def grid_points():
     #cache_file = "cache/gridded_points.csv"
     #if os.path.isfile(cache_file):
@@ -24,6 +44,7 @@ def grid_points():
 
     points = read_boundary_points()
     resolution = 500
+    
 
     x_grid = np.arange(points["Easting"].min(), points["Easting"].max(), step=resolution)
     y_grid = np.arange(points["Northing"].min(), points["Northing"].max(), step=resolution)
@@ -71,7 +92,7 @@ def grid_points():
     plt.colorbar()
     plt.scatter(gridded_data["Easting"], gridded_data["Northing"])
     plt.ylim(gridded_data["Northing"].min(), gridded_data["Northing"].max())
-    plt.show()
+    #plt.show()
 
     
     return gridded_data
