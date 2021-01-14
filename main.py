@@ -13,6 +13,8 @@ import scipy.spatial.distance
 from mpl_toolkits import mplot3d
 from sklearn.linear_model import LinearRegression, RANSACRegressor
 from tqdm import tqdm
+import boundary_height
+import rasterio as rio
 
 
 def read_dataset(filepath: str, interpolation_step: float = 1) -> pd.DataFrame:
@@ -227,9 +229,12 @@ def get_mountain_names():
 
 
 def prepare_data():
-    if os.path.isfile("all_layer_data.csv"):
-        return pd.read_csv("all_layer_data.csv",index_col=0)
-    data = pd.DataFrame(columns=["mountain_name","thickness","width","height","easting","northing"])
+    all_layer_data = "cache/all_layer_data.csv"
+    if os.path.isfile(all_layer_data):
+        return pd.read_csv(all_layer_data,index_col=0)
+
+    boundary_height_data = rio.open("boundary_height_buffered.tif")
+    data = pd.DataFrame(columns=["mountain_name","thickness","width","height_asl", "height_abatt","easting","northing"])
     mountain_names = get_mountain_names()
     count = 0
     for mountain_name in mountain_names:
@@ -256,12 +261,17 @@ def prepare_data():
 
             # print(f"Layer {i} is {thickness:.2f} m thick\n")
 
-            height = np.median(dataset["Height"])
             easting = np.median(dataset["Easting"])
             northing = np.median(dataset["Northing"])
-            data.loc[count] = mountain_name, thickness, width, height, easting, northing
+            batt_height = list(boundary_height_data.sample([(easting, northing)]))[0][0]
+            
+            height_asl = np.median(dataset["Height"])
+            height_abatt = height_asl - batt_height
+
+
+            data.loc[count] = mountain_name, thickness, width, height_asl, height_abatt, easting, northing
             count += 1
-    data.to_csv("all_layer_data.csv")
+    data.to_csv(all_layer_data)
     return data
 
 
@@ -274,28 +284,35 @@ def plot_data():
         row += 1
         line_heights = []
         line_widths = []
+        boundary_height_data = rio.open("boundary_height_buffered.tif")
         for filepath in get_lines_filepaths(mountain_name):
             dataset = read_dataset(filepath)
             width = measure_width(dataset)
             line_widths.append(width)
-            line_heights.append(np.median(dataset["Height"]))
+            easting = np.median(dataset["Easting"])
+            northing = np.median(dataset["Northing"])
+            batt_height = list(boundary_height_data.sample([(easting, northing)]))[0][0]
+            
+            height_asl = np.median(dataset["Height"])
+            height_abatt = height_asl - batt_height
+            line_heights.append(height_abatt)
 
         plt.subplot(len(mountain_names), 3, 1 + (3 * (row - 1)))
-        plt.scatter(mountain_data["width"], mountain_data["height"], facecolor="darkslategrey", alpha=0.7)
+        plt.scatter(mountain_data["width"], mountain_data["height_abatt"], facecolor="darkslategrey", alpha=0.7)
         plt.scatter(line_widths, line_heights, facecolor="None", edgecolor=(0.38,0.26,0.98,.5))
 
         plt.xlabel("Layer width (m)", fontsize=12)
         if row == 3:
-            plt.ylabel("Elevation (m a.s.l.)", fontsize=12)
+            plt.ylabel("Elevation (m above datum)", fontsize=12)
 
         plt.subplot(len(mountain_names), 3, 2 + (3 * (row - 1)))
         nice_label = mountain_name.replace("oe","ø").replace("_"," ")
         plt.text(0.5, 0.8, nice_label, transform=plt.gca().transAxes, ha="center", fontsize=12)
-        plt.scatter(mountain_data["thickness"], mountain_data["height"], facecolor="darkslategrey", alpha=0.7)
+        plt.scatter(mountain_data["thickness"], mountain_data["height_abatt"], facecolor="darkslategrey", alpha=0.7)
 
         plt.xlabel("Layer thickness (m)", fontsize=12)
         if row == 3:
-            plt.ylabel("Elevation (m a.s.l.)", fontsize=12)
+            plt.ylabel("Elevation (m above datum)", fontsize=12)
 
         plt.subplot(len(mountain_names), 3, 3 + (3 * (row - 1)))
         plt.scatter(mountain_data["width"], mountain_data["thickness"], facecolor="darkslategrey", alpha=0.7)
@@ -332,3 +349,5 @@ if __name__ == "__main__":
     #plot_width_thickness()
     #print(prepare_data())
     plot_data()
+    #boundary_height.grid_points()
+    #boundary_height.boundary_surface()

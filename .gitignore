@@ -1,3 +1,6 @@
 .env
 __pycache__/
 all_layer_data.csv
+boundary_height.tif
+cache/
+boundary_height_buffered.tif
