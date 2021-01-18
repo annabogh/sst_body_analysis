@@ -15,6 +15,7 @@ from sklearn.linear_model import LinearRegression, RANSACRegressor
 from tqdm import tqdm
 import boundary_height
 import rasterio as rio
+import seaborn as sns
 
 
 def read_dataset(filepath: str, interpolation_step: float = 1) -> pd.DataFrame:
@@ -336,15 +337,19 @@ def plot_width_thickness():
     linear_width_values = np.linspace(data["width"].min(), data["width"].max())
     predicted_thicknesses = model.predict(linear_width_values.reshape(-1, 1))
     confidence_interval = 1.96 * np.std(predicted_thicknesses)/np.mean(predicted_thicknesses)
+    data["inlier"] = model.inlier_mask_
+    marker_shapes = {True: "o", False: "X"}
 
     for i, (mountain_name, mountain_data) in enumerate(data.groupby("mountain_name")):
         nice_label = mountain_name.replace("oe","ø").replace("_"," ")
         color = plt.get_cmap("twilight")(i / len(np.unique(data["mountain_name"])))
 
-        plt.scatter(mountain_data["width"],mountain_data["thickness"],label=nice_label, c=(color,), edgecolors="darkgrey")
-       
-    plt.plot(linear_width_values, predicted_thicknesses)
-    plt.fill_between(linear_width_values, predicted_thicknesses + confidence_interval, predicted_thicknesses - confidence_interval, color="moccasin", alpha=0.5)
+        for inlier, marker_style in marker_shapes.items():
+            plt.scatter(mountain_data.loc[mountain_data["inlier"]==inlier,"width"],mountain_data.loc[mountain_data["inlier"]==inlier,"thickness"],label=nice_label if inlier else None, c=(color,), edgecolors="darkgrey", marker=marker_style)
+    
+    sns.regplot(data=data[model.inlier_mask_], x="width", y="thickness", scatter=False, ci=90)
+    #plt.plot(linear_width_values, predicted_thicknesses)
+    #plt.fill_between(linear_width_values, predicted_thicknesses + confidence_interval, predicted_thicknesses - confidence_interval, color="moccasin", alpha=0.5)
     plt.legend()
     plt.show()
 
@@ -359,13 +364,13 @@ def estimate_datum_height():
     return planes
 
 if __name__ == "__main__":
-    #plot_width_thickness()
+    plot_width_thickness()
     #print(prepare_data())
     #plot_data()
-    for filename in os.listdir("layer_boundaries/"):
-        if not filename.endswith(".csv"):
-            continue
-        boundary_height.grid_points_new(os.path.join("layer_boundaries/", filename), f"layer_boundary_rasters/{filename.replace('.csv', '.tif')}")
+    #for filename in os.listdir("layer_boundaries/"):
+        #if not filename.endswith(".csv"):
+            #continue
+        #boundary_height.grid_points_new(os.path.join("layer_boundaries/", filename), f"layer_boundary_rasters/{filename.replace('.csv', '.tif')}")
     #boundary_height.grid_points_new("boundary_height.csv", "boundary_height_new.tif")
     #boundary_height.boundary_surface()
     #estimate_datum_height()
