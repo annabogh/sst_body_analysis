@@ -332,25 +332,42 @@ def plot_data():
 def plot_width_thickness():
     data = prepare_data()
 
-    model = RANSACRegressor()
-    model.fit(data["width"].values.reshape(-1, 1), data["thickness"])
-    linear_width_values = np.linspace(data["width"].min(), data["width"].max())
-    predicted_thicknesses = model.predict(linear_width_values.reshape(-1, 1))
-    confidence_interval = 1.96 * np.std(predicted_thicknesses)/np.mean(predicted_thicknesses)
-    data["inlier"] = model.inlier_mask_
+    plt.figure(figsize=(7,8))
+    ax0 = plt.subplot(3,1,1)
+    ax1 = plt.subplot(3,1,2)
+    ax2 = plt.subplot(3,1,3)
+
+    labels = {"height_abatt": "Height above datum (m)", "thickness": "Thickness (m)", "width": "Width (m)"}
+    axis_parameters = [
+        [ax0, "width", "height_abatt"],
+        [ax1, "thickness", "height_abatt"],
+        [ax2, "width", "thickness"]
+    ]
     marker_shapes = {True: "o", False: "X"}
+    for axis, x_column, y_column in axis_parameters:
 
-    for i, (mountain_name, mountain_data) in enumerate(data.groupby("mountain_name")):
-        nice_label = mountain_name.replace("oe","ø").replace("_"," ")
-        color = plt.get_cmap("twilight")(i / len(np.unique(data["mountain_name"])))
+        model = RANSACRegressor()
+        model.fit(data[x_column].values.reshape(-1, 1), data[y_column])
+        linear_width_values = np.linspace(data[x_column].min(), data[x_column].max())
+        predicted_thicknesses = model.predict(linear_width_values.reshape(-1, 1))
+        data["inlier"] = model.inlier_mask_
 
-        for inlier, marker_style in marker_shapes.items():
-            plt.scatter(mountain_data.loc[mountain_data["inlier"]==inlier,"width"],mountain_data.loc[mountain_data["inlier"]==inlier,"thickness"],label=nice_label if inlier else None, c=(color,), edgecolors="darkgrey", marker=marker_style)
-    
-    sns.regplot(data=data[model.inlier_mask_], x="width", y="thickness", scatter=False, ci=90)
-    #plt.plot(linear_width_values, predicted_thicknesses)
-    #plt.fill_between(linear_width_values, predicted_thicknesses + confidence_interval, predicted_thicknesses - confidence_interval, color="moccasin", alpha=0.5)
-    plt.legend()
+        for i, (mountain_name, mountain_data) in enumerate(data.groupby("mountain_name")):
+            nice_label = mountain_name.replace("oe","ø").replace("_"," ")
+            color = plt.get_cmap("twilight")(i / len(np.unique(data["mountain_name"])))
+            
+            for inlier, marker_style in marker_shapes.items():
+                in_or_outlier_data = mountain_data[mountain_data["inlier"] == inlier]
+                axis.scatter(in_or_outlier_data[x_column],in_or_outlier_data[y_column],label=nice_label if inlier else None, c=(color,), edgecolors="darkgrey", marker=marker_style)
+        
+        axis.set_xlim(data[x_column].min(), data[x_column].max())
+        sns.regplot(data=data[model.inlier_mask_], x=x_column, y=y_column, scatter=False, ci=90, ax=axis, truncate=False)
+        axis.set_xlabel(labels[x_column])
+        axis.set_ylabel(labels[y_column])
+
+
+    ax1.legend()
+    plt.tight_layout()
     plt.show()
 
 
@@ -364,7 +381,7 @@ def estimate_datum_height():
     return planes
 
 if __name__ == "__main__":
-    plot_width_thickness()
+    #plot_width_thickness()
     #print(prepare_data())
     #plot_data()
     #for filename in os.listdir("layer_boundaries/"):
