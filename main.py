@@ -383,6 +383,85 @@ def plot_width_thickness():
     plt.tight_layout()
     plt.show()
 
+def plot_bins():
+    data = prepare_data()
+    step = 50
+
+    bins = np.arange(data["height_abatt"].min() - data["height_abatt"].min() % step, data["height_abatt"].max() + step, step=step)
+    data["bin"] = np.digitize(data["height_abatt"],bins=bins)
+    data["outlier"] = False
+    whis = 1.5
+
+    fig = plt.figure(figsize=(8, 5))
+    ax1 = plt.subplot2grid((2, 2), (0, 0))
+    ax2 = plt.subplot2grid((2, 2), (0, 1))
+    ax3 = plt.subplot2grid((2, 2), (1, 0), colspan=2)
+    for bin, bin_data in data.groupby("bin"):
+        mean_height = np.mean([bins[bin - 1], bins[bin]])
+
+        Q3_thickness = np.quantile(bin_data["thickness"], 0.75)
+        Q1_thickness = np.quantile(bin_data["thickness"], 0.25)
+        thickness_outlier = Q3_thickness + whis * (Q3_thickness - Q1_thickness)
+
+        Q3_width = np.quantile(bin_data["width"], 0.75)
+        Q1_width = np.quantile(bin_data["width"], 0.25)
+        width_outlier = Q3_width + whis * (Q3_width - Q1_width)
+
+        data.loc[(data["bin"]==bin) & ((data["thickness"] > thickness_outlier) | (data["width"] > width_outlier)), "outlier"] = True
+
+        boxplot_params = dict(
+            vert=False,
+            positions=[mean_height],
+            widths=[step * 0.9],
+            boxprops=dict(
+                alpha=1,
+                facecolor="white"
+            ),
+            patch_artist=True,
+        )
+
+        box1 = ax1.boxplot([bin_data["thickness"]], **boxplot_params)
+        box2 = ax2.boxplot([bin_data["width"]], **boxplot_params)
+    
+    ax3.scatter(data.loc[data["outlier"],"width"], data.loc[data["outlier"],"thickness"], color="white", edgecolors="black", zorder=2)
+    ax3.scatter(data.loc[~data["outlier"],"width"], data.loc[~data["outlier"],"thickness"], edgecolors="black", zorder=2)
+
+    mean_heights = np.mean([bins[:-1], bins[1:]], axis=0)
+    height_labels = [f"{bins[i]:.0f}⁠–{bins[i + 1]:.0f}" for i in range(mean_heights.shape[0])]
+    ax1.set_yticks(mean_heights)
+    ax1.set_yticklabels(height_labels)
+    ax2.set_yticks(mean_heights)
+    ax2.set_yticklabels([])
+
+    ax2.tick_params(axis="y", direction="in")
+    ax1.grid(axis="y")
+    ax2.grid(axis="y")
+    ax1.set_xlim(-3, 26)
+    ax1.set_ylabel("Height interval (m above datum)")
+    ax1.set_xlabel("Thickness (m)")
+    ax2.set_xlabel("Width (m)", labelpad=1)
+    ax3.set_ylabel("Thickness (m)")
+    ax3.set_xlabel("Width (m)", labelpad=1)
+    ax3.grid(zorder=1)
+    ax2.set_xscale("log")
+    ax3.set_xscale("log")
+
+    ax1.text(0.025, 0.91, "A)", transform=ax1.transAxes, fontsize=12)
+    ax2.text(0.025, 0.91, "B)", transform=ax2.transAxes, fontsize=12)
+    ax3.text(0.01, 0.91, "C)", transform=ax3.transAxes, fontsize=12)
+
+    model = LinearRegression(fit_intercept=False)
+    model.fit(data["width"].values.reshape(-1, 1), data["thickness"].values.reshape(-1, 1))
+    modelled_thickness = model.predict(data["width"].values.reshape((-1, 1)))
+
+    r_value = np.corrcoef(data["thickness"].values, modelled_thickness.squeeze())[0, 1]
+    print(r_value)
+    print(data)
+
+    
+    plt.subplots_adjust(left=0.114, bottom=0.09, right=0.997, top=0.97, wspace=0.01, hspace=0.243)
+    plt.savefig("figures/layer_statistics.jpg", dpi=600)
+    plt.show()
 
 def estimate_datum_height():
     boundary_points = pd.read_csv("batt_boundary_redrawn.csv")
@@ -394,9 +473,10 @@ def estimate_datum_height():
     return planes
 
 if __name__ == "__main__":
-    plot_width_thickness()
+    #plot_width_thickness()
     #print(prepare_data())
     #plot_data()
+    plot_bins()
     #for filename in os.listdir("layer_boundaries/"):
         #if not filename.endswith(".csv"):
             #continue
