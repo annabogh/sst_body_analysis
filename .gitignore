@@ -2,3 +2,5 @@
 __pycache__/
 cache/
 layer_boundary_rasters/
+batt_boundary_redrawn.csv
+statistics_single_plot.csv

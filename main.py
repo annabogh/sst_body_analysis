@@ -287,7 +287,7 @@ def plot_data():
         row += 1
         line_heights = []
         line_widths = []
-        boundary_height_data = rio.open("boundary_height_buffered.tif")
+        #boundary_height_data = rio.open("boundary_height_buffered.tif")
         for filepath in get_lines_filepaths(mountain_name):
             dataset = read_dataset(filepath)
             width = measure_width(dataset)
@@ -344,6 +344,10 @@ def plot_width_thickness():
         [ax2, "width", "thickness"]
     ]
     marker_shapes = {True: "o", False: "X"}
+
+    labels_table = {"height_abatt": "Height above datum", "thickness": "Thickness", "width": "Width"}    
+    statistics = pd.DataFrame(columns=["r-value (all)", "r-value (inliers)", "RMSE-value (all) (m)", "RMSE-value (inliers) (m)"])
+
     for axis, x_column, y_column in axis_parameters:
 
         model = RANSACRegressor()
@@ -351,6 +355,14 @@ def plot_width_thickness():
         linear_width_values = np.linspace(data[x_column].min(), data[x_column].max())
         predicted_thicknesses = model.predict(linear_width_values.reshape(-1, 1))
         data["inlier"] = model.inlier_mask_
+        residuals = data[y_column] - model.predict(data[x_column].values.reshape(-1, 1))
+        rmse_all = np.sqrt(np.mean(np.square(residuals)))
+        rmse_inliers = np.sqrt(np.mean(np.square(residuals[model.inlier_mask_])))
+        R_coeff_all = np.corrcoef(data[y_column], model.predict(data[x_column].values.reshape(-1, 1)))[1,0]
+        R_coeff_inliers = np.corrcoef(data[y_column][model.inlier_mask_], model.predict(data[x_column].values.reshape(-1, 1))[model.inlier_mask_])[1,0]
+        
+        statistics.loc[f"{labels_table[x_column]} vs {labels_table[y_column]}"] = R_coeff_all, R_coeff_inliers, rmse_all, rmse_inliers
+        
 
         for i, (mountain_name, mountain_data) in enumerate(data.groupby("mountain_name")):
             nice_label = mountain_name.replace("oe","ø").replace("_"," ")
@@ -364,8 +376,9 @@ def plot_width_thickness():
         sns.regplot(data=data[model.inlier_mask_], x=x_column, y=y_column, scatter=False, ci=90, ax=axis, truncate=False)
         axis.set_xlabel(labels[x_column])
         axis.set_ylabel(labels[y_column])
+        axis.text(0.5, 0.9, s=f"y = {model.estimator_.coef_[0]:.3f}x + {model.estimator_.intercept_:.3f}", transform=axis.transAxes, ha="center",)
 
-
+    statistics.round(3).to_csv("statistics_single_plot.csv")
     ax1.legend()
     plt.tight_layout()
     plt.show()
@@ -381,7 +394,7 @@ def estimate_datum_height():
     return planes
 
 if __name__ == "__main__":
-    #plot_width_thickness()
+    plot_width_thickness()
     #print(prepare_data())
     #plot_data()
     #for filename in os.listdir("layer_boundaries/"):
