@@ -18,3 +18,4 @@ dependencies:
                 - scipy
                 - scikit_learn
                 - seaborn
+                - ptitprince

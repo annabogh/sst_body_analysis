@@ -16,6 +16,7 @@ from tqdm import tqdm
 import boundary_height
 import rasterio as rio
 import seaborn as sns
+from ptitprince import PtitPrince as pt
 
 
 def read_dataset(filepath: str, interpolation_step: float = 1) -> pd.DataFrame:
@@ -385,17 +386,35 @@ def plot_width_thickness():
 
 def plot_bins():
     data = prepare_data()
-    step = 50
+    step = 100
 
     bins = np.arange(data["height_abatt"].min() - data["height_abatt"].min() % step, data["height_abatt"].max() + step, step=step)
     data["bin"] = np.digitize(data["height_abatt"],bins=bins)
+    data["bin_h"] = np.mean([bins[data["bin"]], bins[data["bin"]]], axis=0).astype(int)
     data["outlier"] = False
+    data["width_log"] = np.log10(data["width"])
+
+    #data = data[data["thickness"] < 13]
     whis = 1.5
 
-    fig = plt.figure(figsize=(8, 5))
+    fig = plt.figure(figsize=(16, 10))
     ax1 = plt.subplot2grid((2, 2), (0, 0))
     ax2 = plt.subplot2grid((2, 2), (0, 1))
     ax3 = plt.subplot2grid((2, 2), (1, 0), colspan=2)
+
+    raincloud_params = dict(
+        data=data,
+        x="bin_h",
+        orient="h",
+        order=np.unique(data["bin_h"])[::-1],
+        palette="blend:#b80,#b80",
+        cloud_alpha=0.5,
+        width_viol=1.6
+    )
+
+    pt.RainCloud(ax=ax1, y="thickness", **raincloud_params)
+    pt.RainCloud(ax=ax2, y="width_log", **raincloud_params)
+
     for bin, bin_data in data.groupby("bin"):
         mean_height = np.mean([bins[bin - 1], bins[bin]])
 
@@ -420,31 +439,47 @@ def plot_bins():
             patch_artist=True,
         )
 
-        box1 = ax1.boxplot([bin_data["thickness"]], **boxplot_params)
-        box2 = ax2.boxplot([bin_data["width"]], **boxplot_params)
+        
+
+        #ax1.boxplot([bin_data["thickness"]], **boxplot_params)
+        #ax2.boxplot([bin_data["width"]], **boxplot_params)
     
+
     ax3.scatter(data.loc[data["outlier"],"width"], data.loc[data["outlier"],"thickness"], color="white", edgecolors="black", zorder=2)
     ax3.scatter(data.loc[~data["outlier"],"width"], data.loc[~data["outlier"],"thickness"], edgecolors="black", zorder=2)
 
     mean_heights = np.mean([bins[:-1], bins[1:]], axis=0)
     height_labels = [f"{bins[i]:.0f}⁠–{bins[i + 1]:.0f}" for i in range(mean_heights.shape[0])]
-    ax1.set_yticks(mean_heights)
-    ax1.set_yticklabels(height_labels)
-    ax2.set_yticks(mean_heights)
+
+    
+    ax1.set_yticklabels(height_labels[::-1])
     ax2.set_yticklabels([])
+    ax2.set_ylabel("")
+    x_ticks_log = np.array([1, 2, 3])
+    ax2.set_xticks(x_ticks_log)
+    smallticks = np.log10(np.unique([np.arange((10 ** tick) / 10, 10**tick, step=(10 ** tick) / 10, dtype=int) for tick in x_ticks_log]))
+    ax2.set_xticks(smallticks, minor=True)
+    superscript_map = {
+        0: "⁰",
+        1: "¹",
+        2: "²",
+        3: "³"
+    }
+    ax2.set_xticklabels(f"10{superscript_map[tick]}" for tick in x_ticks_log)
+    ax2.set_xlim(1, 3.3)
 
     ax2.tick_params(axis="y", direction="in")
     ax1.grid(axis="y")
     ax2.grid(axis="y")
-    ax1.set_xlim(-3, 26)
+    #ax1.set_xlim(-3, 26)
     ax1.set_ylabel("Height interval (m above datum)")
     ax1.set_xlabel("Thickness (m)")
     ax2.set_xlabel("Width (m)", labelpad=1)
     ax3.set_ylabel("Thickness (m)")
     ax3.set_xlabel("Width (m)", labelpad=1)
     ax3.grid(zorder=1)
-    ax2.set_xscale("log")
     ax3.set_xscale("log")
+    
 
     ax1.text(0.025, 0.91, "A)", transform=ax1.transAxes, fontsize=12)
     ax2.text(0.025, 0.91, "B)", transform=ax2.transAxes, fontsize=12)
@@ -456,7 +491,7 @@ def plot_bins():
 
     r_value = np.corrcoef(data["thickness"].values, modelled_thickness.squeeze())[0, 1]
     print(r_value)
-    print(data)
+    print(data.to_string())
 
     
     plt.subplots_adjust(left=0.114, bottom=0.09, right=0.997, top=0.97, wspace=0.01, hspace=0.243)
